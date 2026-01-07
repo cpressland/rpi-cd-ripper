@@ -14,3 +14,9 @@ When an audio CD is inserted, this project:
 5.  **Uploads** the ripped files to a [Copyparty](https://github.com/9001/copyparty) server in the background.
 
 ## Installation
+
+With a fresh install of Raspberry Pi OS, execute the following command:
+
+```shell
+curl https://raw.githubusercontent.com/cpressland/rpi-cd-ripper/refs/heads/main/install.sh | sudo bash -
+```

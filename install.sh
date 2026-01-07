@@ -25,7 +25,7 @@ fi
 # --- 1. Install System Dependencies ---
 log_info "Updating apt and installing dependencies..."
 apt-get update -qq
-apt-get install -y -qq wget lame flac abcde cdparanoia python3 python3-requests
+apt-get install -y -qq neovim wget lame flac abcde cdparanoia python3 python3-requests
 
 # --- 2. Create Directories ---
 log_info "Creating directories..."
