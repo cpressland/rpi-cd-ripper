@@ -23,4 +23,5 @@ curl https://raw.githubusercontent.com/cpressland/rpi-cd-ripper/refs/heads/main/
 
 > [!NOTE]
 > The Raspberry Pi can sometimes aggressively sleep its WiFi interface.
+>
 > You can disable this with `sudo raspi-config` > "Advanced Options" > "WLAN Power Save" > "No".
