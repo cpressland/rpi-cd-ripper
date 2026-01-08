@@ -6,13 +6,21 @@ import os
 import requests
 import logging
 import re
+import fcntl
 from pathlib import Path
 
 # --- Configuration ---
 LOG_FILE = Path("/var/log/cdrip.log")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
-ABCDE_CMD = ["abcde", "-N"]  # -N prevents user interaction
+ABCDE_CMD = ["abcde", "-N"]
+
+# --- Constants for CDROM ioctl ---
+CDROM_DRIVE_STATUS = 0x5326
+CDS_NO_DISC = 1
+CDS_TRAY_OPEN = 2
+CDS_DRIVE_NOT_READY = 3
+CDS_DISC_OK = 4
 
 # Setup Logging
 logging.basicConfig(
@@ -22,60 +30,59 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
+def get_drive_status(device_path):
+    """
+    Checks the physical status of the CD drive using Linux ioctl.
+    Returns True if a disc is present and ready (CDS_DISC_OK).
+    """
+    try:
+        # Open device in non-blocking mode just to query status
+        fd = os.open(device_path, os.O_RDONLY | os.O_NONBLOCK)
+        status = fcntl.ioctl(fd, CDROM_DRIVE_STATUS)
+        os.close(fd)
+
+        if status == CDS_DISC_OK:
+            return True, "Disc Present"
+        elif status == CDS_TRAY_OPEN:
+            return False, "Tray Open"
+        elif status == CDS_NO_DISC:
+            return False, "No Disc"
+        elif status == CDS_DRIVE_NOT_READY:
+            return False, "Drive Not Ready"
+        else:
+            return False, f"Unknown Status ({status})"
+    except Exception as e:
+        logging.error(f"Failed to query drive status: {e}")
+        # If we can't query, assume true to let abcde handle the error naturally
+        return True, "Check Failed"
+
 def send_telegram(message, image_url=None):
-    """Sends a notification to Telegram, optionally with a cover image."""
+    """Sends a notification to Telegram."""
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        logging.warning("Telegram credentials missing. Skipping notification.")
         return
 
     try:
         if image_url:
-            # Send Photo with Caption
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-            payload = {
-                "chat_id": CHAT_ID,
-                "photo": image_url,
-                "caption": message,
-                "parse_mode": "Markdown"
-            }
-            logging.info(f"Sending Telegram Photo: {image_url}")
+            payload = {"chat_id": CHAT_ID, "photo": image_url, "caption": message, "parse_mode": "Markdown"}
         else:
-            # Send Text Message
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            payload = {
-                "chat_id": CHAT_ID,
-                "text": message,
-                "parse_mode": "Markdown"
-            }
-            logging.info("Sending Telegram Message")
+            payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
 
-        response = requests.post(url, json=payload, timeout=15)
-        response.raise_for_status()
-
+        logging.info("Sending Telegram Message")
+        requests.post(url, json=payload, timeout=15)
     except Exception as e:
         logging.error(f"Failed to send Telegram notification: {e}")
-        # Fallback: If sending photo fails (e.g. invalid URL), try sending just text
-        if image_url:
-             logging.info("Retrying Telegram with text only...")
-             send_telegram(message, image_url=None)
 
 def parse_abcde_log(log_output):
     """Extracts Artist, Album, and Cover URL from abcde stdout."""
-    info = {
-        "artist": "Unknown Artist",
-        "album": "Unknown Album",
-        "cover_url": None
-    }
+    info = {"artist": "Unknown Artist", "album": "Unknown Album", "cover_url": None}
 
-    # Regex to find the selected match (Assuming match #1 is selected by -N)
-    # Pattern looks for: #1 (Source): ---- Artist / Album ----
     match_metadata = re.search(r"#1 \(.*?\): ---- (.+?) / (.+?) ----", log_output)
     if match_metadata:
         info["artist"] = match_metadata.group(1).strip()
         info["album"] = match_metadata.group(2).strip()
 
-    # Regex to find cover URL
-    # Pattern looks for: cover URL: http://...
     match_cover = re.search(r"cover URL: (https?://\S+)", log_output)
     if match_cover:
         info["cover_url"] = match_cover.group(1).strip()
@@ -88,54 +95,45 @@ def main():
         logging.error("No device specified. Usage: script.py <device>")
         sys.exit(1)
 
-    device_name = sys.argv[1] # e.g., sr0
+    device_name = sys.argv[1]
     device_path = f"/dev/{device_name}"
 
-    logging.info(f"--- Starting Rip for {device_path} ---")
+    logging.info(f"--- Triggered for {device_path} ---")
+
+    # 2. Pre-flight Check: Is there a disc?
+    disc_present, status_msg = get_drive_status(device_path)
+    if not disc_present:
+        logging.info(f"Aborting: {status_msg}")
+        # Exit cleanly so systemd doesn't mark it as failed.
+        # This prevents the 'CD Rip Failed' notification.
+        sys.exit(0)
+
+    # 3. Proceed with Rip
+    logging.info(f"Disc confirmed ({status_msg}). Starting rip.")
     send_telegram(f"💿 **CD Rip Started**\nDevice: `{device_path}`")
 
-    # 2. Run abcde
     try:
-        # We capture stdout/stderr to parse them
-        result = subprocess.run(
-            ABCDE_CMD,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        result = subprocess.run(ABCDE_CMD, capture_output=True, text=True, check=True)
 
-        # Log the full output
         logging.info("abcde output:\n" + result.stdout)
-
-        # 3. Parse Metadata
         meta = parse_abcde_log(result.stdout)
 
-        # 4. Success Notification
-        msg = (
-            f"✅ **CD Rip Completed**\n"
-            f"🎵 **Artist:** {meta['artist']}\n"
-            f"💿 **Album:** {meta['album']}\n"
-            f"📂 Device: `{device_path}`"
-        )
+        msg = (f"✅ **CD Rip Completed**\n"
+               f"🎵 **Artist:** {meta['artist']}\n"
+               f"💿 **Album:** {meta['album']}\n"
+               f"📂 Device: `{device_path}`")
 
         send_telegram(msg, image_url=meta['cover_url'])
         logging.info("Rip completed successfully.")
 
     except subprocess.CalledProcessError as e:
-        # 5. Error Handling
         error_msg = e.stderr if e.stderr else e.stdout
         logging.error(f"Rip failed with return code {e.returncode}")
         logging.error(f"Output: {error_msg}")
 
-        # Eject on failure
         subprocess.run(["eject", device_path], check=False)
 
-        send_telegram(
-            f"❌ **CD Rip Failed**\n"
-            f"Device: `{device_path}`\n"
-            f"Error Code: `{e.returncode}`\n"
-            f"Log: Check `/var/log/cdrip.log`"
-        )
+        send_telegram(f"❌ **CD Rip Failed**\nDevice: `{device_path}`\nError Code: `{e.returncode}`\nLog: Check `/var/log/cdrip.log`")
         sys.exit(e.returncode)
 
 if __name__ == "__main__":
