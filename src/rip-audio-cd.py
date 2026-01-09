@@ -1,13 +1,14 @@
 #!/usr/bin/env -S python3
 
-import sys
-import subprocess
-import os
-import requests
-import logging
-import re
 import fcntl
+import logging
+import os
+import re
+import subprocess
+import sys
 from pathlib import Path
+
+import requests
 
 # --- Configuration ---
 LOG_FILE = Path("/var/log/cdrip.log")
@@ -27,8 +28,9 @@ logging.basicConfig(
     filename=LOG_FILE,
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
+
 
 def get_drive_status(device_path):
     """
@@ -56,6 +58,7 @@ def get_drive_status(device_path):
         # If we can't query, assume true to let abcde handle the error naturally
         return True, "Check Failed"
 
+
 def send_telegram(message, image_url=None):
     """Sends a notification to Telegram."""
     if not TELEGRAM_TOKEN or not CHAT_ID:
@@ -64,7 +67,12 @@ def send_telegram(message, image_url=None):
     try:
         if image_url:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-            payload = {"chat_id": CHAT_ID, "photo": image_url, "caption": message, "parse_mode": "Markdown"}
+            payload = {
+                "chat_id": CHAT_ID,
+                "photo": image_url,
+                "caption": message,
+                "parse_mode": "Markdown",
+            }
         else:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
             payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
@@ -73,6 +81,7 @@ def send_telegram(message, image_url=None):
         requests.post(url, json=payload, timeout=15)
     except Exception as e:
         logging.error(f"Failed to send Telegram notification: {e}")
+
 
 def parse_abcde_log(log_output):
     """Extracts Artist, Album, and Cover URL from abcde stdout."""
@@ -88,6 +97,7 @@ def parse_abcde_log(log_output):
         info["cover_url"] = match_cover.group(1).strip()
 
     return info
+
 
 def main():
     # 1. Validation
@@ -118,12 +128,14 @@ def main():
         logging.info("abcde output:\n" + result.stdout)
         meta = parse_abcde_log(result.stdout)
 
-        msg = (f"✅ **CD Rip Completed**\n"
-               f"🎵 **Artist:** {meta['artist']}\n"
-               f"💿 **Album:** {meta['album']}\n"
-               f"📂 Device: `{device_path}`")
+        msg = (
+            f"✅ **CD Rip Completed**\n"
+            f"🎵 **Artist:** {meta['artist']}\n"
+            f"💿 **Album:** {meta['album']}\n"
+            f"📂 Device: `{device_path}`"
+        )
 
-        send_telegram(msg, image_url=meta['cover_url'])
+        send_telegram(msg, image_url=meta["cover_url"])
         logging.info("Rip completed successfully.")
 
     except subprocess.CalledProcessError as e:
@@ -133,8 +145,11 @@ def main():
 
         subprocess.run(["eject", device_path], check=False)
 
-        send_telegram(f"❌ **CD Rip Failed**\nDevice: `{device_path}`\nError Code: `{e.returncode}`\nLog: Check `/var/log/cdrip.log`")
+        send_telegram(
+            f"❌ **CD Rip Failed**\nDevice: `{device_path}`\nError Code: `{e.returncode}`\nLog: Check `/var/log/cdrip.log`"
+        )
         sys.exit(e.returncode)
+
 
 if __name__ == "__main__":
     main()
