@@ -6,4 +6,3 @@ ConditionPathExists=/dev/%I
 Type=oneshot
 EnvironmentFile=/etc/rip-audio-cd.env
 ExecStart=/usr/local/bin/rip-audio-cd.py %I
-OnSuccess=copyparty-upload.service
