@@ -1,0 +1,11 @@
+[Unit]
+Description=Upload ripped music to Copyparty (%I)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/rip-audio-cd.env
+ExecStart=/usr/local/bin/u2c.py -a ${COPYPARTY_PASSWORD} --dl ${COPYPARTY_URL} %I
+User=root
+Group=root
