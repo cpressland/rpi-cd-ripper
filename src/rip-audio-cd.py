@@ -59,23 +59,14 @@ def get_drive_status(device_path):
         return True, "Check Failed"
 
 
-def send_telegram(message, image_url=None):
+def send_telegram(message):
     """Sends a notification to Telegram."""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         return
 
     try:
-        if image_url:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-            payload = {
-                "chat_id": CHAT_ID,
-                "photo": image_url,
-                "caption": message,
-                "parse_mode": "Markdown",
-            }
-        else:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
 
         logging.info("Sending Telegram Message")
         requests.post(url, json=payload, timeout=15)
@@ -84,17 +75,13 @@ def send_telegram(message, image_url=None):
 
 
 def parse_abcde_log(log_output):
-    """Extracts Artist, Album, and Cover URL from abcde stdout."""
-    info = {"artist": "Unknown Artist", "album": "Unknown Album", "cover_url": None}
+    """Extracts Artist and Album from abcde stdout."""
+    info = {"artist": "Unknown Artist", "album": "Unknown Album"}
 
     match_metadata = re.search(r"#1 \(.*?\): ---- (.+?) / (.+?) ----", log_output)
     if match_metadata:
         info["artist"] = match_metadata.group(1).strip()
         info["album"] = match_metadata.group(2).strip()
-
-    match_cover = re.search(r"cover URL: (https?://\S+)", log_output)
-    if match_cover:
-        info["cover_url"] = match_cover.group(1).strip()
 
     return info
 
@@ -135,7 +122,7 @@ def main():
             f"📂 Device: `{device_path}`"
         )
 
-        send_telegram(msg, image_url=meta["cover_url"])
+        send_telegram(msg)
         logging.info("Rip completed successfully.")
 
     except subprocess.CalledProcessError as e:
