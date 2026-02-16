@@ -1,9 +1,10 @@
 [Unit]
 Description=Rip audio CD on insertion (%I)
 ConditionPathExists=/dev/%I
+OnSuccess=copyparty-upload.service
 
 [Service]
-Type=oneshot
+Type=simple
 EnvironmentFile=/etc/rip-audio-cd.env
+WorkingDirectory=/tmp
 ExecStart=/usr/local/bin/rip-audio-cd.py %I
-OnSuccess=copyparty-upload.service
